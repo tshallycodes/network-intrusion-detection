@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Network Intrusion Detector</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>🛡️ Network Intrusion Detector</h1>
+    <p class="subtitle">IoT traffic analysis — detects malicious network connections across 12 CTU-IoT-Malware captures</p>
+  </header>
+
+  <!-- Train Card -->
+  {% if dataset_exists %}
+  <div class="card train-card">
+    <div class="train-row">
+      <div>
+        <h2>Model Training</h2>
+        <p>Random Forest on top 25 features · 12 capture files · up to 50k rows sampled per file</p>
+      </div>
+      <button id="trainBtn" class="btn-primary" onclick="startTraining()">Train Model</button>
+    </div>
+    <div id="trainLog" class="train-log" style="display:none"></div>
+  </div>
+  {% else %}
+  <div class="alert alert-warn">
+    <strong>Dataset not found.</strong> Expected: <code>~/Documents/malware/</code> with <code>.csv</code> files.
+  </div>
+  {% endif %}
+
+  <!-- Results -->
+  <div id="results" style="display:{% if loaded %}block{% else %}none{% endif %}">
+
+    <!-- Top stats -->
+    <div class="stats-row" id="statsRow">
+      {% if loaded %}
+      <div class="stat-card"><div class="stat-value" id="statTotal">{{ model_data.total | default('—') | int | format_number }}</div><div class="stat-label">Connections</div></div>
+      <div class="stat-card benign"><div class="stat-value" id="statBenign">{{ model_data.benign_count | default('—') }}</div><div class="stat-label">Benign</div></div>
+      <div class="stat-card malicious"><div class="stat-value" id="statMalicious">{{ model_data.malicious_count | default('—') }}</div><div class="stat-label">Malicious</div></div>
+      <div class="stat-card"><div class="stat-value" id="statAcc">{{ model_data.accuracy | default('—') }}%</div><div class="stat-label">Accuracy</div></div>
+      <div class="stat-card"><div class="stat-value" id="statAuc">{{ model_data.auc | default('—') }}%</div><div class="stat-label">ROC-AUC</div></div>
+      {% endif %}
+    </div>
+
+    <!-- Charts row 1 -->
+    <div class="charts-row">
+      <div class="card chart-card">
+        <h3>Feature Importance (Top 25)</h3>
+        <canvas id="featureChart"></canvas>
+      </div>
+      <div class="card chart-card">
+        <h3>Attack Type Breakdown</h3>
+        <canvas id="attackChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Charts row 2 -->
+    <div class="charts-row">
+      <div class="card chart-card">
+        <h3>Confusion Matrix</h3>
+        <div id="confMatrix" class="conf-matrix-wrap"></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Classification Report</h3>
+        <table id="reportTable" class="report-table">
+          <thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead>
+          <tbody id="reportBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Capture file stats -->
+    <div class="card">
+      <h3>Capture Files Loaded</h3>
+      <table class="report-table" id="fileTable">
+        <thead><tr><th>File</th><th>Total Rows</th><th>Benign</th><th>Malicious</th><th>Sampled</th></tr></thead>
+        <tbody id="fileBody"></tbody>
+      </table>
+    </div>
+
+    <!-- Predict -->
+    <div class="card">
+      <h3>Classify a Connection</h3>
+      <p class="hint">Enter network connection fields to classify as Benign or Malicious.</p>
+      <div class="predict-grid">
+        <div class="field-group">
+          <label>Protocol</label>
+          <select id="p_proto"><option>udp</option><option>tcp</option></select>
+        </div>
+        <div class="field-group">
+          <label>Dest Port</label>
+          <input type="number" id="p_resp_p" value="123" />
+        </div>
+        <div class="field-group">
+          <label>Conn State</label>
+          <select id="p_conn_state">
+            <option>SF</option><option>S0</option><option>OTH</option><option>REJ</option><option>RSTO</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>History</label>
+          <select id="p_history">
+            <option>Dd</option><option>S</option><option>D</option><option>^d</option><option>ShADadFf</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Orig Bytes</label>
+          <select id="p_orig_bytes"><option>48</option><option>0</option><option value="-">-</option></select>
+        </div>
+        <div class="field-group">
+          <label>Resp Bytes</label>
+          <select id="p_resp_bytes"><option>48</option><option>0</option><option value="-">-</option></select>
+        </div>
+        <div class="field-group">
+          <label>Orig IP Bytes</label>
+          <select id="p_orig_ip_bytes"><option>76</option><option>60</option><option>180</option><option>0</option></select>
+        </div>
+        <div class="field-group">
+          <label>Resp IP Bytes</label>
+          <select id="p_resp_ip_bytes"><option>76</option><option>88</option><option>0</option></select>
+        </div>
+        <div class="field-group">
+          <label>Orig Pkts</label>
+          <select id="p_orig_pkts"><option>1</option><option>3</option><option>0</option></select>
+        </div>
+        <div class="field-group">
+          <label>Resp Pkts</label>
+          <select id="p_resp_pkts"><option>1</option><option>0</option></select>
+        </div>
+        <div class="field-group">
+          <label>Duration (s)</label>
+          <input type="number" id="p_duration" step="0.001" value="0.005" />
+        </div>
+      </div>
+      <button class="btn-primary" onclick="predictConnection()" style="margin-top:16px">Classify Connection</button>
+      <div id="predResult" class="pred-result" style="display:none"></div>
+    </div>
+
+  </div><!-- /results -->
+
+</div><!-- /container -->
+
+<script>
+let featureChart = null;
+let attackChart = null;
+
+function startTraining() {
+  const btn = document.getElementById("trainBtn");
+  const logDiv = document.getElementById("trainLog");
+  btn.disabled = true;
+  btn.textContent = "Training...";
+  logDiv.style.display = "block";
+  logDiv.innerHTML = "";
+
+  fetch("/train", { method: "POST" })
+    .then(r => r.json())
+    .then(d => { if (d.error) { logDiv.innerHTML = `<div class="err">${d.error}</div>`; btn.disabled = false; btn.textContent = "Train Model"; } else { pollStatus(); } });
+}
+
+function pollStatus() {
+  fetch("/status").then(r => r.json()).then(data => {
+    const logDiv = document.getElementById("trainLog");
+    logDiv.innerHTML = data.log.map(l => `<div class="${l.startsWith('ERROR') ? 'err' : ''}">${l}</div>`).join("");
+    logDiv.scrollTop = logDiv.scrollHeight;
+    if (data.done) {
+      if (data.error) {
+        logDiv.innerHTML += `<div class="err">Error: ${data.error}</div>`;
+        document.getElementById("trainBtn").disabled = false;
+        document.getElementById("trainBtn").textContent = "Retry";
+      } else {
+        loadResults();
+      }
+    } else {
+      setTimeout(pollStatus, 800);
+    }
+  });
+}
+
+function loadResults() {
+  fetch("/results").then(r => r.json()).then(data => {
+    document.getElementById("results").style.display = "block";
+    document.getElementById("statTotal").textContent = data.total.toLocaleString();
+    document.getElementById("statBenign").textContent = data.benign_count.toLocaleString();
+    document.getElementById("statMalicious").textContent = data.malicious_count.toLocaleString();
+    document.getElementById("statAcc").textContent = data.accuracy + "%";
+    document.getElementById("statAuc").textContent = data.auc + "%";
+
+    renderFeatureChart(data.fi);
+    renderAttackChart(data.attack_breakdown);
+    renderConfMatrix(data.cm);
+    renderReport(data.report);
+    renderFileTable(data.file_stats);
+
+    const btn = document.getElementById("trainBtn");
+    if (btn) { btn.disabled = false; btn.textContent = "Retrain"; }
+  });
+}
+
+function renderFeatureChart(fi) {
+  const labels = fi.map(f => f.Feature);
+  const values = fi.map(f => +(f.Importance * 100).toFixed(2));
+  if (featureChart) featureChart.destroy();
+  const ctx = document.getElementById("featureChart").getContext("2d");
+  featureChart = new Chart(ctx, {
+    type: "bar",
+    data: { labels, datasets: [{ label: "Importance (%)", data: values, backgroundColor: "rgba(56,189,248,0.75)", borderColor: "#38bdf8", borderWidth: 1 }] },
+    options: {
+      indexAxis: "y", responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#94a3b8" }, grid: { color: "#1e293b" } },
+        y: { ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { color: "#1e293b" } }
+      }
+    }
+  });
+}
+
+function renderAttackChart(breakdown) {
+  const labels = Object.keys(breakdown);
+  const values = Object.values(breakdown);
+  const colors = ["#f87171","#fb923c","#facc15","#a78bfa","#34d399","#60a5fa","#f472b6"];
+  if (attackChart) attackChart.destroy();
+  const ctx = document.getElementById("attackChart").getContext("2d");
+  attackChart = new Chart(ctx, {
+    type: "doughnut",
+    data: { labels, datasets: [{ data: values, backgroundColor: colors.slice(0, labels.length), borderColor: "#0f172a", borderWidth: 2 }] },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: "#94a3b8", font: { size: 12 } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed.toLocaleString()}` } }
+      }
+    }
+  });
+}
+
+function renderConfMatrix(cm) {
+  const labels = ["Benign", "Malicious"];
+  let html = '<table class="cm-table"><thead><tr><th></th>';
+  labels.forEach(l => html += `<th>Pred: ${l}</th>`);
+  html += "</tr></thead><tbody>";
+  cm.forEach((row, i) => {
+    html += `<tr><td class="cm-label">Actual: ${labels[i]}</td>`;
+    row.forEach((v, j) => html += `<td class="${i===j ? 'cm-tp' : 'cm-fp'}">${v.toLocaleString()}</td>`);
+    html += "</tr>";
+  });
+  html += "</tbody></table>";
+  document.getElementById("confMatrix").innerHTML = html;
+}
+
+function renderReport(report) {
+  let html = "";
+  ["Benign", "Malicious"].forEach(cls => {
+    const r = report[cls];
+    if (r) html += `<tr><td>${cls}</td><td>${(r.precision*100).toFixed(1)}%</td><td>${(r.recall*100).toFixed(1)}%</td><td>${(r["f1-score"]*100).toFixed(1)}%</td><td>${Math.round(r.support).toLocaleString()}</td></tr>`;
+  });
+  if (report.accuracy !== undefined) {
+    html += `<tr class="acc-row"><td><strong>Accuracy</strong></td><td colspan="3"></td><td><strong>${(report.accuracy*100).toFixed(1)}%</strong></td></tr>`;
+  }
+  document.getElementById("reportBody").innerHTML = html;
+}
+
+function renderFileTable(stats) {
+  let html = "";
+  (stats || []).forEach(s => {
+    if (s.error) {
+      html += `<tr><td>${s.file}</td><td colspan="4" class="err">Error: ${s.error}</td></tr>`;
+    } else {
+      html += `<tr>
+        <td style="font-size:0.8rem">${s.file.replace("CTU-IoT-Malware-Capture-","Capture-").replace("conn.log.labeled.csv","")}</td>
+        <td>${s.total.toLocaleString()}</td>
+        <td>${s.benign.toLocaleString()}</td>
+        <td>${s.malicious.toLocaleString()}</td>
+        <td>${s.sampled.toLocaleString()}</td>
+      </tr>`;
+    }
+  });
+  document.getElementById("fileBody").innerHTML = html;
+}
+
+function predictConnection() {
+  const payload = {
+    proto: document.getElementById("p_proto").value,
+    "id.resp_p": document.getElementById("p_resp_p").value,
+    conn_state: document.getElementById("p_conn_state").value,
+    history: document.getElementById("p_history").value,
+    orig_bytes: document.getElementById("p_orig_bytes").value,
+    resp_bytes: document.getElementById("p_resp_bytes").value,
+    orig_ip_bytes: document.getElementById("p_orig_ip_bytes").value,
+    resp_ip_bytes: document.getElementById("p_resp_ip_bytes").value,
+    orig_pkts: document.getElementById("p_orig_pkts").value,
+    resp_pkts: document.getElementById("p_resp_pkts").value,
+    duration: document.getElementById("p_duration").value,
+  };
+  fetch("/predict", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+    .then(r => r.json())
+    .then(data => {
+      const div = document.getElementById("predResult");
+      div.style.display = "block";
+      if (data.error) {
+        div.className = "pred-result pred-error";
+        div.innerHTML = `<strong>Error:</strong> ${data.error}`;
+      } else {
+        const isMal = data.label === "Malicious";
+        div.className = `pred-result ${isMal ? "pred-malicious" : "pred-benign"}`;
+        div.innerHTML = `<div class="pred-label">${isMal ? "⚠️ MALICIOUS" : "✅ BENIGN"}</div>
+          <div class="pred-probs">Benign: <strong>${data.benign_prob}%</strong> &nbsp;|&nbsp; Malicious: <strong>${data.malicious_prob}%</strong></div>`;
+      }
+    });
+}
+
+{% if loaded %}
+fetch("/results").then(r => r.json()).then(data => {
+  renderFeatureChart(data.fi);
+  renderAttackChart(data.attack_breakdown);
+  renderConfMatrix(data.cm);
+  renderReport(data.report);
+  renderFileTable(data.file_stats);
+});
+{% endif %}
+</script>
+</body>
+</html>
