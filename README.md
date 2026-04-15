@@ -132,16 +132,3 @@ network-intrusion-detector/
 │   └── style.css        # Dark theme styling
 └── requirements.txt
 ```
-
-## My Other ML Projects
-
-| Project | Description | Repo |
-|---------|-------------|------|
-| Loan Default Predictor | XGBoost — credit risk classification | [loan-default-predictor](https://github.com/manny2341/loan-default-predictor) |
-| Spam Email Detector | NLP — TF-IDF spam vs ham | [spam-email-detector](https://github.com/manny2341/spam-email-detector) |
-| Face Recognition Login | OpenCV LBPH — webcam face authentication | [face-recognition-login](https://github.com/manny2341/face-recognition-login) |
-| Stock Price Predictor | LSTM — 5,884 tickers + crypto | [stock-price-predictor](https://github.com/manny2341/stock-price-predictor) |
-
-## Author
-
-[@manny2341](https://github.com/manny2341)
